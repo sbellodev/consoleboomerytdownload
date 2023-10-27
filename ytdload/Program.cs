@@ -1,45 +1,51 @@
 ﻿using System;
 using System.IO;
 using System.Threading.Tasks;
+using System.Linq;
 using YoutubeExplode;
 using YoutubeExplode.Videos.Streams;
+using YoutubeExplode.Playlists;
 using MediaToolkit;
 using MediaToolkit.Model;
 using MediaToolkit.Options;
+using YoutubeExplode.Common;
 
 class Program
 {
     static async Task Main(string[] args)
     {
         var youtubeClient = new YoutubeClient();
-        var videoUrl = "https://www.youtube.com/watch?v=UT5F9AXjwhg";
-        var video = await youtubeClient.Videos.GetAsync(videoUrl);
+        var playlistUrl = "https://www.youtube.com/playlist?list=PLL6BW4AG0XYfzmVoZJGEj2wemXrCX92LC";
 
-        var streamManifest = await youtubeClient.Videos.Streams.GetManifestAsync(video.Id);
+        // Get all playlist videos
+        var videos = await youtubeClient.Playlists.GetVideosAsync(playlistUrl);
 
-        var videoStreamInfo = streamManifest.GetMuxedStreams().GetWithHighestVideoQuality(); // Select the best video quality
-
-        var outputVideoPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), $"{video.Title}.{videoStreamInfo.Container}");
-        var outputAudioPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), $"{video.Title}.mp3");
-
-        using (var stream = await youtubeClient.Videos.Streams.GetAsync(videoStreamInfo))
-        using (var output = File.Create(outputVideoPath))
+        foreach (var video in videos)
         {
-            await stream.CopyToAsync(output);
+            var videoUrl = $"https://www.youtube.com/watch?v={video.Id}";
+            var videoInfo = await youtubeClient.Videos.GetAsync(videoUrl);
+
+            var streamManifest = await youtubeClient.Videos.Streams.GetManifestAsync(videoInfo.Id);
+
+            // Get the audio-only stream
+            var audioStreamInfo = streamManifest.GetAudioOnlyStreams().FirstOrDefault();
+
+            if (audioStreamInfo != null)
+            {
+                var outputAudioPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Desktop), $"{videoInfo.Title}.mp3");
+
+                using (var stream = await youtubeClient.Videos.Streams.GetAsync(audioStreamInfo))
+                using (var output = File.Create(outputAudioPath))
+                {
+                    await stream.CopyToAsync(output);
+                }
+
+                Console.WriteLine($"Audio from video {videoInfo.Title} has been downloaded and saved as MP3: {outputAudioPath}");
+            }
+            else
+            {
+                Console.WriteLine($"No audio stream available for video {videoInfo.Title}");
+            }
         }
-
-        Console.WriteLine($"The video has been downloaded to: {outputVideoPath}");
-
-        // Convert the video to MP3
-        var inputFile = new MediaFile { Filename = outputVideoPath };
-        var outputFile = new MediaFile { Filename = outputAudioPath };
-
-        using (var engine = new Engine())
-        {
-            engine.GetMetadata(inputFile);
-            engine.Convert(inputFile, outputFile);
-        }
-
-        Console.WriteLine($"The video has been converted to MP3: {outputAudioPath}");
     }
 }
